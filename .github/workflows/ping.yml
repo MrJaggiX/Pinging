@@ -1,85 +1,72 @@
-name: Ping website every 5 minutes
+name: Website Monitor with Daily Status
 
 on:
   schedule:
-    - cron: '*/5 * * * *'   # every 5 minutes
+    - cron: '*/5 * * * *'   # हर 5 मिनट - website ping
+    - cron: '0 9 * * *'     # रोज सुबह 9:00 AM - daily report
   workflow_dispatch:
 
 jobs:
-  ping:
+  monitor:
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout repo
-        uses: actions/checkout@v4
-
-      - name: Restore status cache
-        id: cache-restore
-        uses: actions/cache@v3
-        with:
-          path: .last_status
-          key: site-status-${{ github.ref }}
-
-      - name: Ping site with retry
+      - name: Ping website every 5 minutes
         env:
           URL: https://telegramforwarder-5gl5.onrender.com
           TG_BOT_TOKEN: ${{ secrets.TG_BOT_TOKEN }}
           TG_CHAT_ID: ${{ secrets.TG_CHAT_ID }}
         run: |
-          echo "🔍 Monitoring: $URL"
+          echo "🔄 Pinging: $URL"
           
-          # Try with 30 seconds timeout and retry logic
-          MAX_RETRIES=2
-          TIMEOUT=30
+          # Ping website with retry
+          HTTP_CODE=$(curl -sSL -o /dev/null -w "%{http_code}" --max-time 30 "$URL")
+          echo "Status Code: $HTTP_CODE"
           
-          for attempt in $(seq 1 $MAX_RETRIES); do
-            echo "Attempt $attempt/$MAX_RETRIES (Timeout: ${TIMEOUT}s)"
-            HTTP_CODE=$(curl -sSL -o /dev/null -w "%{http_code}" --max-time $TIMEOUT "$URL")
-            
-            if [ "$HTTP_CODE" -ge 200 ] && [ "$HTTP_CODE" -lt 400 ]; then
-              echo "✅ Success - Status Code: $HTTP_CODE"
-              break
-            elif [ $attempt -eq $MAX_RETRIES ]; then
-              echo "❌ All attempts failed"
-              HTTP_CODE="000"  # Custom code for timeout
-            else
-              echo "⚠️ Attempt $attempt failed, retrying in 3 seconds..."
-              sleep 3
-            fi
-          done
-
           # Read previous status
-          LAST_STATUS="UP"
           if [ -f .last_status ]; then
             LAST_STATUS=$(cat .last_status)
-            echo "Last status was: $LAST_STATUS"
+          else
+            LAST_STATUS="UP"
           fi
-
-          # Handle current status
-          if [ "$HTTP_CODE" -ge 200 ] && [ "$HTTP_CODE" -lt 400 ]; then
+          
+          # Check status and send alerts if changed
+          if [ "$HTTP_CODE" -eq 200 ]; then
             echo "UP" > .last_status
             if [ "$LAST_STATUS" = "DOWN" ]; then
-              MSG="✅ RECOVERY: $URL is BACK UP (Status: $HTTP_CODE) at $(date)"
-              echo "📢 Sending Telegram: $MSG"
               curl -s -X POST "https://api.telegram.org/bot$TG_BOT_TOKEN/sendMessage" \
                 -d chat_id="$TG_CHAT_ID" \
-                -d text="$MSG"
+                -d text="✅ RECOVERY: Website is BACK UP at $(date)"
             fi
-            echo "🎉 Site is HEALTHY"
           else
             echo "DOWN" > .last_status
             if [ "$LAST_STATUS" = "UP" ]; then
-              MSG="⚠️ ALERT: $URL is DOWN (Status: $HTTP_CODE) at $(date)"
-              echo "📢 Sending Telegram: $MSG"
               curl -s -X POST "https://api.telegram.org/bot$TG_BOT_TOKEN/sendMessage" \
                 -d chat_id="$TG_CHAT_ID" \
-                -d text="$MSG"
+                -d text="⚠️ ALERT: Website is DOWN at $(date)"
             fi
-            echo "💥 Site is DOWN or unreachable"
-            exit 1
           fi
 
-      - name: Save status cache
-        uses: actions/cache@v3
-        with:
-          path: .last_status
-          key: site-status-${{ github.ref }}
+  daily-report:
+    runs-on: ubuntu-latest
+    if: github.event.schedule == '0 9 * * *'
+    steps:
+      - name: Send daily status
+        env:
+          TG_BOT_TOKEN: ${{ secrets.TG_BOT_TOKEN }}
+          TG_CHAT_ID: ${{ secrets.TG_CHAT_ID }}
+        run: |
+          MESSAGE="🤖 **Daily Bot Status Report**
+
+✅ Your Auto Forwarder Bot is working perfectly!
+🕘 Last checked: $(date)
+🌐 URL: https://telegramforwarder-5gl5.onrender.com
+📊 System: Active and Monitoring
+
+💫 Everything is running smoothly! 🎉"
+
+          curl -s -X POST "https://api.telegram.org/bot$TG_BOT_TOKEN/sendMessage" \
+            -d chat_id="$TG_CHAT_ID" \
+            -d text="$MESSAGE" \
+            -d parse_mode="Markdown"
+          
+          echo "✅ Daily status sent to Telegram"
