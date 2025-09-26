@@ -10,6 +10,15 @@ jobs:
   monitor:
     runs-on: ubuntu-latest
     steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      - name: Restore status cache
+        uses: actions/cache@v3
+        with:
+          path: .last_status
+          key: status-cache-${{ github.ref }}
+
       - name: Ping website every 5 minutes
         env:
           URL: https://telegramforwarder-5gl5.onrender.com
@@ -37,6 +46,7 @@ jobs:
                 -d chat_id="$TG_CHAT_ID" \
                 -d text="✅ RECOVERY: Website is BACK UP at $(date)"
             fi
+            echo "✅ Website is UP"
           else
             echo "DOWN" > .last_status
             if [ "$LAST_STATUS" = "UP" ]; then
@@ -44,11 +54,20 @@ jobs:
                 -d chat_id="$TG_CHAT_ID" \
                 -d text="⚠️ ALERT: Website is DOWN at $(date)"
             fi
+            echo "❌ Website is DOWN"
+            exit 1
           fi
+
+      - name: Save status cache
+        uses: actions/cache@v3
+        with:
+          path: .last_status
+          key: status-cache-${{ github.ref }}
 
   daily-report:
     runs-on: ubuntu-latest
-    if: github.event.schedule == '0 9 * * *'
+    needs: monitor
+    if: contains(github.event.schedule, '0 9 * * *')
     steps:
       - name: Send daily status
         env:
