@@ -1,26 +1,42 @@
-name: Simple Website Monitor
+name: Website Monitor with Daily Status
 
 on:
   schedule:
-    - cron: '*/5 * * * *'   # हर 5 मिनट
-    - cron: '0 9 * * *'     # रोज 9AM
+    - cron: '*/5 * * * *'   # Every 5 minutes
+    - cron: '0 9 * * *'     # Daily at 9 AM
+  workflow_dispatch:
 
 jobs:
-  ping:
+  monitor:
     runs-on: ubuntu-latest
     steps:
-      - name: Ping and Monitor
-        env:
-          URL: https://telegramforwarder-5gl5.onrender.com
-          TG_BOT_TOKEN: ${{ secrets.TG_BOT_TOKEN }}
-          TG_CHAT_ID: ${{ secrets.TG_CHAT_ID }}
-        run: |
-          # Simple ping
-          curl -s --max-time 30 "$URL" && echo "✅ Website UP" || echo "❌ Website DOWN"
-          
-          # Daily message at 9AM
-          if [ $(date +%H:%M) = "09:00" ]; then
-            curl -s -X POST "https://api.telegram.org/bot$TG_BOT_TOKEN/sendMessage" \
-              -d chat_id="$TG_CHAT_ID" \
-              -d text="✅ Daily Report: Bot is working at $(date)"
-          fi
+    - name: Checkout repo
+      uses: actions/checkout@v4
+
+    - name: Ping website
+      env:
+        URL: https://telegramforwarder-5gl5.onrender.com
+        TG_BOT_TOKEN: ${{ secrets.TG_BOT_TOKEN }}
+        TG_CHAT_ID: ${{ secrets.TG_CHAT_ID }}
+      run: |
+        echo "🔄 Pinging website..."
+        HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" --max-time 30 "$URL")
+        echo "Status: $HTTP_CODE"
+        
+        # Check if it's 9 AM for daily report
+        CURRENT_HOUR=$(date +%H)
+        CURRENT_MIN=$(date +%M)
+        
+        if [ "$CURRENT_HOUR" = "09" ] && [ "$CURRENT_MIN" = "00" ]; then
+          echo "📅 Sending daily report..."
+          curl -s -X POST "https://api.telegram.org/bot$TG_BOT_TOKEN/sendMessage" \
+            -d chat_id="$TG_CHAT_ID" \
+            -d text="🤖 Daily Report: Your bot is working perfectly! ✅ Time: $(date)"
+        fi
+        
+        if [ "$HTTP_CODE" -eq 200 ]; then
+          echo "✅ Website is UP"
+        else
+          echo "❌ Website is DOWN"
+          exit 1
+        fi
